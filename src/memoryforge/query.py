@@ -35,7 +35,7 @@ _INDEX_ENTRY = re.compile(
 )
 _FRONTMATTER = re.compile(r"\A---\n(?P<fields>.*?)\n---\n", re.DOTALL)
 _FACT_SECTION = re.compile(r"^#{3,6} (?P<section>.+?)\s*$", re.MULTILINE)
-_WORDS = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+", re.IGNORECASE)
+_WORDS = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]+", re.IGNORECASE)
 _CAMEL_CASE_PARTS = re.compile(r"[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+")
 _CJK = re.compile(r"^[\u4e00-\u9fff]+$")
 _REPOSITORY_OVERVIEW_LINK = re.compile(r"^pages/repository-[a-f0-9]{12}\.md$")
@@ -74,6 +74,16 @@ _CODE_QUERY_EXPANSIONS = {
     "职责": {"responsibility", "responsibilities"},
     "方法": {"method", "methods", "func", "function", "functions"},
     "字段": {"field", "fields", "struct", "attribute", "attributes"},
+}
+_CODE_KIND_TERMS = {
+    "class",
+    "constant",
+    "function",
+    "interface",
+    "method",
+    "module",
+    "struct",
+    "type",
 }
 _ENVIRONMENT_ASSIGNMENT = re.compile(r"\b(?:export\s+)?[A-Z][A-Z0-9_]{2,}=")
 _CODE_FACT = re.compile(r"^(?:package|type|func|class|def)\b")
@@ -201,6 +211,9 @@ def answer_question(
                 include_section=use_section_routes,
                 enabled=page_path in local_morphology_pages,
             )
+            if code_page:
+                exact_overlap -= _CODE_KIND_TERMS
+                overlap -= _CODE_KIND_TERMS
             is_summary = citation.get("is_summary", False)
             raw_candidate_matches.append((frozenset(overlap), is_summary, page_path, citation))
             has_cjk_terms = any(_CJK.fullmatch(term) for term in question_terms)
@@ -1157,9 +1170,15 @@ def _terms(text: str) -> set[str]:
                 terms.update(token[index : index + 2] for index in range(len(token) - 1))
         elif token not in _STOP_WORDS:
             terms.add(token)
-            parts = _CAMEL_CASE_PARTS.findall(raw_token)
-            if len(parts) > 1:
-                terms.update("".join(parts[index:]).lower() for index in range(1, len(parts) - 1))
+            for snake_part in (part for part in raw_token.split("_") if part):
+                snake_token = snake_part.lower()
+                if snake_token not in _STOP_WORDS:
+                    terms.add(snake_token)
+                parts = _CAMEL_CASE_PARTS.findall(snake_part)
+                if len(parts) > 1:
+                    terms.update(
+                        "".join(parts[index:]).lower() for index in range(1, len(parts) - 1)
+                    )
     return terms
 
 

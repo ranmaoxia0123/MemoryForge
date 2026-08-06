@@ -1411,6 +1411,44 @@ def test_terms_match_camel_case_identifier_suffixes() -> None:
     assert "runneradapter" in question_terms & fact_terms
 
 
+def test_terms_preserve_complete_snake_case_identifiers() -> None:
+    question_terms = query_module._terms("s03_permission.code.check_permission")
+    exact_terms = query_module._terms("s03_permission.code.check_permission")
+    competing_terms = query_module._terms("s03_permission.code.check_deny_list")
+
+    assert "check_permission" in question_terms & exact_terms
+    assert "check_permission" not in competing_terms
+
+
+def test_code_wiki_ignores_kind_words_when_no_specific_fact_matches(tmp_path: Path) -> None:
+    page = tmp_path / "wiki/pages/code/repository/agent-loop.md"
+    page.parent.mkdir(parents=True)
+    (tmp_path / "wiki/INDEX.md").write_text(
+        "# Knowledge Index\n\n"
+        "- [Agent loop](pages/code/repository/agent-loop.md) — agent function reference\n",
+        encoding="utf-8",
+    )
+    page.write_text(
+        "---\n"
+        "generated: code_wiki\n"
+        "type: concept\n"
+        "---\n"
+        "# Agent loop\n\n"
+        "## Verified symbols\n\n"
+        "- `agent_loop.run_bash` (function): `def run_bash(command: str) -> str:` [^code-1]\n\n"
+        "## Sources\n\n"
+        f"[^code-1]: source `{'a' * 64}` · revision `1` · `chars:0-10`\n",
+        encoding="utf-8",
+    )
+
+    result = query_module.answer_question(
+        tmp_path,
+        "Which function stores agent embeddings in a vector database?",
+    )
+
+    assert result["status"] == "unknown"
+
+
 def test_ask_prefers_a_camel_case_identifier_over_project_background(
     tmp_path: Path,
     monkeypatch,
