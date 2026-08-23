@@ -262,6 +262,7 @@ AI：approve 只记录与提案哈希绑定的授权，apply 才写入 Wiki 并�
 | 文档 | 内容 |
 | --- | --- |
 | [中文使用指南](docs/USER_GUIDE_CN.md) | 安装、导入、问答与 AI Host MCP 接入 |
+| [源码深度解读](docs/SOURCE_CODE_DEEP_DIVE_CN.md) | 架构、数据模型、写入与查询链路、恢复和源码阅读路线 |
 | [多客户端接入指南](docs/MULTI_CLIENT_SETUP.md) | Codex / Claude Code / Gemini 连接与 Hook 配置 |
 | [桌面端指南](docs/DESKTOP_APP_CN.md) | macOS / Windows 原生窗口、Workspace 选择与打包方式 |
 | [SPEC.md](SPEC.md) | 架构、数据模型和安全边界 |
