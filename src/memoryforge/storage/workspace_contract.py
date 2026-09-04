@@ -7,10 +7,12 @@ from pathlib import Path
 from memoryforge.compiler.egress_policy import SCHEMA_SQL as _EGRESS_SCHEMA
 from memoryforge.compiler.knowledge_conflicts import SCHEMA_SQL as _CONFLICT_SCHEMA
 from memoryforge.storage.capture_inbox import SCHEMA_SQL as _CAPTURE_SCHEMA
+from memoryforge.storage.query_gaps import SCHEMA_SQL as _QUERY_GAP_SCHEMA
 
 CAPTURE_SCHEMA = _CAPTURE_SCHEMA
 CONFLICT_SCHEMA = _CONFLICT_SCHEMA
 EGRESS_SCHEMA = _EGRESS_SCHEMA
+QUERY_GAP_SCHEMA = _QUERY_GAP_SCHEMA
 
 DATABASE_RELATIVE_PATH = Path(".memoryforge/index.sqlite")
 RAW_CATEGORIES = ("design", "postmortem", "summary", "notes", "refs")

@@ -98,6 +98,7 @@ from memoryforge.storage.workspace_contract import (
     CAPTURE_SCHEMA,
     CONFLICT_SCHEMA,
     EGRESS_SCHEMA,
+    QUERY_GAP_SCHEMA,
 )
 from memoryforge.storage.workspace_contract import (
     DATABASE_RELATIVE_PATH as DATABASE_RELATIVE_PATH,
@@ -2711,6 +2712,8 @@ def _apply_schema_without_source_fts(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
     for statement in CONFLICT_SCHEMA:
         connection.execute(statement)
+    for statement in QUERY_GAP_SCHEMA:
+        connection.execute(statement)
 
 
 def _rebuild_origin_main_fts(connection: sqlite3.Connection, root: Path) -> None:
@@ -2800,6 +2803,8 @@ def _apply_schema(connection: sqlite3.Connection) -> None:
     for statement in CAPTURE_SCHEMA:
         connection.execute(statement)
     for statement in CONFLICT_SCHEMA:
+        connection.execute(statement)
+    for statement in QUERY_GAP_SCHEMA:
         connection.execute(statement)
 
 
