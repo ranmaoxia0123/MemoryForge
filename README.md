@@ -13,10 +13,13 @@ Local-first knowledge compiler — AI 只能提案，人审核后才发布；每
 <a href="https://github.com/still0123/MemoryForge/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/release-v0.4.0-1664FF" alt="release v0.4.0"/></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"/></a>
 <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+"/>
-<img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-lightgrey" alt="macOS · Windows"/>
+<img src="https://img.shields.io/badge/release%20platform-macOS-lightgrey" alt="release platform: macOS"/>
 <img src="https://img.shields.io/badge/release%20gate-656%20tests%20passed-brightgreen" alt="release gate: 656 tests passed"/>
 
-[快速开始](#快速开始) · [与 RAG 的区别](#与普通-rag-的区别) · [设计决策](#核心设计决策) · [在 AI 应用中使用](#在-ai-应用中使用)
+[快速开始](#快速开始) · [源码学习手册](docs/SOURCE_CODE_DEEP_DIVE_CN.md) ·
+[秋招项目评估](docs/SOURCE_CODE_DEEP_DIVE_CN.md#25-秋招项目竞争力与优化路线) ·
+[与 RAG 的区别](#与普通-rag-的区别) · [设计决策](#核心设计决策) ·
+[在 AI 应用中使用](#在-ai-应用中使用)
 
 **简体中文** | [English](README_EN.md)
 
@@ -257,12 +260,23 @@ AI：approve 只记录与提案哈希绑定的授权，apply 才写入 Wiki 并�
 来源：Wiki 页面 · SourceVersion · 原文 locator · Commit SHA
 ```
 
+## 证据可复现（关于 `demo/results/artifacts`）
+
+仓库里的 `.whl` / `.tar.gz` 不是发布产物（正式发布走 [GitHub Release](https://github.com/still0123/MemoryForge/releases)），而是**可独立重放的构建证据**：每个 development 目录保留双次构建（`reproducibility-first` / `reproducibility-second`）以证明构建确定性，并附 `SHA256SUMS` 与 provenance JSON。任何人 clone 后运行
+
+```bash
+python demo/validate_benchmark_registry.py
+```
+
+即可用 `zipfile` / `tarfile` 重新打开每个包、逐文件比对 wheel 与 sdist 的跨介质内容、重算全部 SHA-256——证据是可验证的，不是"相信记录"。细节见
+[跨平台交付规范](docs/CROSS_PLATFORM_DELIVERY_SPEC.md) 与 [证据与主张对照](docs/EVIDENCE_CLAIMS.md)。
+
 ## 文档
 
 | 文档 | 内容 |
 | --- | --- |
 | [中文使用指南](docs/USER_GUIDE_CN.md) | 安装、导入、问答与 AI Host MCP 接入 |
-| [源码深度解读](docs/SOURCE_CODE_DEEP_DIVE_CN.md) | 架构、数据模型、写入与查询链路、恢复和源码阅读路线 |
+| [源码学习手册](docs/SOURCE_CODE_DEEP_DIVE_CN.md) | 架构、技术选型、核心链路、恢复机制、源码路线和秋招优化 |
 | [多客户端接入指南](docs/MULTI_CLIENT_SETUP.md) | Codex / Claude Code / Gemini 连接与 Hook 配置 |
 | [桌面端指南](docs/DESKTOP_APP_CN.md) | macOS / Windows 原生窗口、Workspace 选择与打包方式 |
 | [SPEC.md](SPEC.md) | 架构、数据模型和安全边界 |
