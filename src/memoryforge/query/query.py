@@ -239,9 +239,7 @@ def answer_question(
     rewrite_search_queries = getattr(provider, "rewrite_search_queries", None)
     if callable(rewrite_search_queries) and not explicit_titles and not symbol_matches:
         try:
-            search_queries = tuple(
-                dict.fromkeys((question, *rewrite_search_queries(question)))
-            )
+            search_queries = tuple(dict.fromkeys((question, *rewrite_search_queries(question))))
         except (ProviderUnavailableError, ValueError) as exc:
             logging.debug("query rewrite unavailable, using original question: %s", exc)
     retrieval_debug["query_variants"] = list(search_queries)
@@ -883,8 +881,7 @@ def _model_answer(
                                 sensitivity=Sensitivity(str(row[0])),
                             )
                             if not decision.allowed and not (
-                                allow_local
-                                and getattr(provider, "accepts_local_evidence", False)
+                                allow_local and getattr(provider, "accepts_local_evidence", False)
                             ):
                                 return None
                         record_disclosure(

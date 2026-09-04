@@ -141,9 +141,7 @@ def test_trae_cli_provider_rewrites_search_queries(
 
     monkeypatch.setattr(provider_module.subprocess, "run", fake_run)
 
-    queries = TraeCliAnswerProvider(tmp_path / "trae-cli").rewrite_search_queries(
-        "FileNAS是什么"
-    )
+    queries = TraeCliAnswerProvider(tmp_path / "trae-cli").rewrite_search_queries("FileNAS是什么")
 
     assert queries == ("FileNAS 产品定位与职责", "FileNAS 管控面架构")
 

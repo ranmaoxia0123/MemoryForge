@@ -850,8 +850,7 @@ def test_ask_model_failure_falls_back_to_wide_retrieval_candidates(
     runner, workspace, _ = _workspace_with_imported_source(
         tmp_path,
         monkeypatch,
-        "# File services\n\n"
-        "FileNAS-Mgr 负责文件系统、挂载点、权限校验、状态编排与失败恢复。\n",
+        "# File services\n\nFileNAS-Mgr 负责文件系统、挂载点、权限校验、状态编排与失败恢复。\n",
     )
     _apply_pending_source(runner, workspace)
 
