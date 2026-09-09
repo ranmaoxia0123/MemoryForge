@@ -218,7 +218,10 @@ def test_document_queries_require_requested_api_and_rank_classification(tmp_path
         "# Runtime.js 4.2.1\n\n"
         "## ConnectionTracker\n\nTracks active connections for shutdown.\n\n"
         "## ERR_POOL_CLOSED\n\nThe pool no longer accepts work.\n\n"
-        "## ERR_SOCKET_CLOSED\n\nThe socket no longer accepts work.\n"
+        "## ERR_SOCKET_CLOSED\n\nThe socket no longer accepts work.\n\n"
+        "## Runtime.match\n\n<!-- YAML added: v4.1.0 -->\n\n"
+        "Primitive values are compared by identity.\n\n"
+        "## Runtime.equal\n\nStability: 2 - Stable.\n"
     )
     (source / "release.md").write_text(
         "# Comet Release 4.2.1\n\n"
@@ -249,3 +252,16 @@ def test_document_queries_require_requested_api_and_rank_classification(tmp_path
         result = answer_question(workspace.root, f"What is {identifier} in Runtime.js 4.2.1?")
         assert result["status"] == "unknown", result
         assert result["citations"] == []
+
+    stability = answer_question(
+        workspace.root, "What is the stability level of Runtime.match in Runtime.js 4.2.1?"
+    )
+    assert stability["status"] == "unknown", stability
+    assert stability["answer"] == "不知道"
+    assert stability["citations"] == []
+
+    supported_stability = answer_question(
+        workspace.root, "What is the stability level of Runtime.equal in Runtime.js 4.2.1?"
+    )
+    assert supported_stability["status"] == "answered", supported_stability
+    assert "Stability: 2 - Stable" in supported_stability["answer"]

@@ -144,7 +144,8 @@ def answer_question(
     definition_question = _is_definition_question(question)
     definition_subject = _definition_subject(question)
     yes_no_focus_terms = _yes_no_focus_terms(question)
-    focus_terms = _question_focus_terms(question) | yes_no_focus_terms
+    property_terms = _requested_property_terms(question)
+    focus_terms = _question_focus_terms(question) | yes_no_focus_terms | property_terms
     if "子模" in base_question_terms:
         focus_terms.update({"child", "children", "modules"})
     if "方法" in base_question_terms:
@@ -211,6 +212,11 @@ def answer_question(
     versions, version_source_groups = _version_source_groups(workspace_root, question)
     requested_identifiers = _support_identifiers(question)
     document_identifiers = requested_identifiers if versions else ()
+    literal_identifiers = tuple(
+        identifier
+        for identifier in requested_identifiers
+        if "." in identifier or "_" in identifier or f"`{identifier}`" in question
+    )
     use_section_routes = use_section_routes or bool(versions or requested_identifiers)
     if version_source_groups and not all(version_source_groups):
         return _unknown_payload(debug, trace, unsupported_aspects=["requested_version_not_found"])
@@ -652,7 +658,8 @@ def answer_question(
         feishu_page_paths=feishu_page_paths,
         prefer_capability_facts=prefer_capability_facts,
         prefer_cleanup_conclusion=prefer_cleanup_conclusion,
-        prefer_exact_identifiers=_terms(" ".join(requested_identifiers)) or identifier_terms,
+        prefer_exact_identifiers=identifier_terms,
+        requested_identifiers=literal_identifiers,
         prefer_feishu_operations=prefer_feishu_operations,
     )
     candidate_matches = _rank_matches(
@@ -671,7 +678,8 @@ def answer_question(
         feishu_page_paths=feishu_page_paths,
         prefer_capability_facts=prefer_capability_facts,
         prefer_cleanup_conclusion=prefer_cleanup_conclusion,
-        prefer_exact_identifiers=_terms(" ".join(requested_identifiers)) or identifier_terms,
+        prefer_exact_identifiers=identifier_terms,
+        requested_identifiers=literal_identifiers,
         prefer_feishu_operations=prefer_feishu_operations,
     )
     model_candidates = [
@@ -865,6 +873,19 @@ def answer_question(
         code_page_paths=code_page_paths,
         code_page_identifiers=code_page_identifiers,
     )
+    if property_terms and not any(
+        _local_english_matching_terms(property_terms, citation, enabled=True)
+        for _, citation in selected
+    ):
+        support["sufficient"] = False
+        support["enforced"] = True
+        support["failed_hard_gates"].append("requested_property_not_covered")
+        return _unknown_payload(
+            debug,
+            trace,
+            support=support,
+            unsupported_aspects=["requested_property_not_covered"],
+        )
     selected_source_keys = {
         (citation["source_id"], citation["source_version"]) for _, citation in selected
     }
@@ -2124,6 +2145,7 @@ def _rank_matches(
     prefer_capability_facts: bool = False,
     prefer_cleanup_conclusion: bool = False,
     prefer_exact_identifiers: set[str] | None = None,
+    requested_identifiers: tuple[str, ...] = (),
     prefer_feishu_operations: bool = False,
 ) -> list[tuple[tuple[int, ...], str, CitationPayload]]:
     page_ranks = page_ranks or {}
@@ -2168,6 +2190,13 @@ def _rank_matches(
         )
         score = (
             int(_citation_fact_key(page_path, citation) in exact_symbol_fact_keys),
+            sum(
+                identifier
+                in _code_identifier_tokens(
+                    f"{citation.get('section_path', '')} {citation['quote']}"
+                )
+                for identifier in requested_identifiers
+            ),
             len(direct_overlap & focus_terms) if page_aware else 0,
             int(
                 bool(prefer_exact_identifiers)
@@ -2452,6 +2481,16 @@ def _yes_no_focus_terms(question: str) -> set[str]:
         if _CJK.fullmatch(token) and token.endswith("吗"):
             return _terms(token[len(token) // 2 :])
     return set()
+
+
+def _requested_property_terms(question: str) -> set[str]:
+    """Named attributes need their own evidence, not merely the right API section."""
+    match = re.search(
+        r"\bwhat is the ([a-z]+(?: [a-z]+)*) (?:level|status|value) (?:of|for)\b",
+        question,
+        re.IGNORECASE,
+    )
+    return _terms(match[1]) if match else set()
 
 
 def _question_focus_terms(question: str) -> set[str]:
