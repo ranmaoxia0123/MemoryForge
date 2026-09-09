@@ -2195,7 +2195,8 @@ def _rank_matches(
             sum(
                 identifier
                 in _code_identifier_tokens(
-                    f"{citation.get('section_path', '')} {citation['quote']}"
+                    f"{citation.get('section_path', '')} "
+                    f"{citation.get('routing_text', '')} {citation['quote']}"
                 )
                 for identifier in requested_identifiers
             ),
