@@ -184,10 +184,15 @@ def _support_score(
     required_source_groups: tuple[frozenset[SourceVersionKey], ...] = (),
     code_page_paths: set[str],
     code_page_identifiers: dict[str, set[str]] | None = None,
+    property_terms: set[str] | None = None,
+    enforce_document_support: bool = False,
 ) -> SupportPayload:
     core_terms = (
         question_terms - _SUPPORT_CODE_KIND_TERMS - _RANKING_STOP_WORDS - _QUESTION_NOISE_TERMS
     )
+    # Function words cannot establish that a passage answers the requested subject.
+    if not any(path in code_page_paths for path, _ in selected):
+        core_terms -= {"of", "in", "for", "was", "were", "be", "been", "and", "or"}
     code_anchor_terms = {term for term in core_terms if not _CJK.fullmatch(term)}
     if len(code_anchor_terms) >= 2 and any(
         page_path in code_page_paths for page_path, _ in selected
@@ -259,7 +264,31 @@ def _support_score(
         and any(marker in selected[0][1]["quote"] for marker in _CAPABILITY_MARKERS)
         and exact_identifier_coverage == 1.0
     )
-    if capability_summary:
+    property_supported = (
+        bool(property_terms)
+        and exact_identifier_coverage == 1.0
+        and any(
+            _local_english_matching_terms(property_terms or set(), citation, enabled=True)
+            for _, citation in selected
+        )
+    )
+    definition_lookup = (
+        len(explicit_identifiers) == 1
+        and exact_identifier_coverage == 1.0
+        and re.fullmatch(
+            rf"\s*what is (?:the )?`?{re.escape(explicit_identifiers[0])}`?"
+            r"(?:\s+in\b[^?]*)?[?]?\s*",
+            question,
+            re.IGNORECASE,
+        )
+        is not None
+        and any(
+            len(_terms(citation["quote"])) >= 3
+            and not re.fullmatch(r"<!--.*?-->", citation["quote"].strip(), re.S)
+            for _, citation in selected
+        )
+    )
+    if capability_summary or property_supported or definition_lookup:
         core_coverage = max(core_coverage, 0.75)
     conditional = _has_support_condition(question)
     if conditional:
@@ -274,7 +303,7 @@ def _support_score(
             or max((len(matching) for matching in per_fact_matches), default=0)
             >= min(2, len(core_terms))
         )
-    if capability_summary:
+    if capability_summary or property_supported or definition_lookup:
         fact_co_location = 1.0
     if "失败后" in question and any(
         marker in citation["quote"]
@@ -363,7 +392,8 @@ def _support_score(
     )
     code_enforced = any(page_path in code_page_paths for page_path, _ in selected)
     enforced = (
-        bool(required_source_groups)
+        (enforce_document_support and not any(_CJK.fullmatch(term) for term in question_terms))
+        or bool(required_source_groups)
         or "分别" in question
         or code_enforced
         or any(

@@ -872,6 +872,8 @@ def answer_question(
         required_source_groups=required_source_groups[: len(explicit_titles)],
         code_page_paths=code_page_paths,
         code_page_identifiers=code_page_identifiers,
+        property_terms=property_terms,
+        enforce_document_support=model_status != "used",
     )
     if property_terms and not any(
         _local_english_matching_terms(property_terms, citation, enabled=True)
@@ -900,14 +902,14 @@ def answer_question(
         support["enforced"] = True
         if "stale_sources" not in support["failed_hard_gates"] and total_penalty > 0:
             support["failed_hard_gates"].append("stale_sources")
-    if "exact_identifier_not_covered" in support["failed_hard_gates"] and not any(
-        path in code_page_paths for path, _ in selected
-    ):
+    if {"exact_identifier_not_covered", "score_below_threshold"} & set(
+        support["failed_hard_gates"]
+    ) and not any(path in code_page_paths for path, _ in selected):
         return _unknown_payload(
             debug,
             trace,
             support=support,
-            unsupported_aspects=["exact_identifier_not_covered"],
+            unsupported_aspects=list(support["failed_hard_gates"]),
         )
     if not support["sufficient"]:
         selected_sources = {
@@ -2489,6 +2491,10 @@ def _requested_property_terms(question: str) -> set[str]:
         r"\bwhat is the ([a-z]+(?: [a-z]+)*) (?:level|status|value) (?:of|for)\b",
         question,
         re.IGNORECASE,
+    ) or re.search(
+        r"\b(?:what|which) (?:type|kind|category) of (.+?) (?:is|are)\b",
+        question,
+        re.IGNORECASE,
     )
     return _terms(match[1]) if match else set()
 
@@ -2499,13 +2505,6 @@ def _question_focus_terms(question: str) -> set[str]:
     Repository names are commonly placed before ``的``. They identify where to
     search, while the suffix identifies which setting or behaviour to answer.
     """
-    classification = re.search(
-        r"\b(?:what|which) (?:type|kind|category) of (.+?) (?:is|are)\b",
-        question,
-        re.IGNORECASE,
-    )
-    if classification:
-        return _terms(classification[1])
     for match in _WORDS.finditer(question):
         token = match.group()
         if _CJK.fullmatch(token) and "的" in token:

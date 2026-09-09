@@ -1476,7 +1476,9 @@ def test_local_english_matching_handles_inflections_without_changing_terms() -> 
     )
 
 
-def test_ask_admits_a_fact_with_one_local_inflection_match(tmp_path: Path) -> None:
+def test_local_inflection_match_alone_does_not_identify_the_requested_option(
+    tmp_path: Path,
+) -> None:
     pages = tmp_path / "wiki" / "pages"
     pages.mkdir(parents=True)
     quote = "The loader stores cached directory listings."
@@ -1491,7 +1493,10 @@ def test_ask_admits_a_fact_with_one_local_inflection_match(tmp_path: Path) -> No
         "Which GriffeLoader option enables cache?",
     )
 
-    assert result["answer"] == quote
+    # "stores cached listings" does not identify which configuration option enables it.
+    assert result["status"] == "unknown"
+    assert "score_below_threshold" in result["support"]["failed_hard_gates"]
+    assert result["answer"] == "不知道"
 
 
 def test_rank_matches_prefers_local_morphology_then_page_rank() -> None:
