@@ -209,3 +209,43 @@ def test_heading_or_unfinished_introduction_is_not_sufficient_evidence(
     )
     assert not support["sufficient"]
     assert "incomplete_evidence_fragment" in support["failed_hard_gates"]
+
+
+def test_document_queries_require_requested_api_and_rank_classification(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "runtime.md").write_text(
+        "# Runtime.js 4.2.1\n\n"
+        "## ConnectionTracker\n\nTracks active connections for shutdown.\n\n"
+        "## ERR_POOL_CLOSED\n\nThe pool no longer accepts work.\n\n"
+        "## ERR_SOCKET_CLOSED\n\nThe socket no longer accepts work.\n"
+    )
+    (source / "release.md").write_text(
+        "# Comet Release 4.2.1\n\n"
+        "Comet 4.2.1 is a maintenance release containing stability fixes.\n\n"
+        "The type of Comet data is inferred incorrectly after an upgrade.\n"
+    )
+    workspace = Workspace.initialize(tmp_path / "wiki")
+    sync_folder(workspace.root, source, sensitivity=Sensitivity.PUBLIC)
+    _publish(workspace)
+    classification = answer_question(workspace.root, "What type of release is Comet 4.2.1?")
+    assert classification["status"] == "answered", classification
+    assert "maintenance release" in classification["answer"]
+    for identifier, expected in (
+        ("ConnectionTracker", "Tracks active connections"),
+        ("ERR_POOL_CLOSED", "pool no longer"),
+    ):
+        result = answer_question(
+            workspace.root, f"What is {identifier} in Runtime.js 4.2.1?", verify=True
+        )
+        assert result["status"] == "answered", result
+        assert expected in result["answer"]
+        assert all(identifier in c.get("section_path", "") for c in result["citations"])
+    missing_unversioned = answer_question(workspace.root, "What is ERR_POOL_FULL?")
+    assert missing_unversioned["status"] == "unknown", missing_unversioned
+    assert missing_unversioned["answer"] == "不知道"
+    assert missing_unversioned["citations"] == []
+    for identifier in ("MissingTracker", "ERR_POOL_FULL"):
+        result = answer_question(workspace.root, f"What is {identifier} in Runtime.js 4.2.1?")
+        assert result["status"] == "unknown", result
+        assert result["citations"] == []

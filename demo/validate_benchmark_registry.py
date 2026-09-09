@@ -4014,7 +4014,7 @@ def _raw_code_wiki_evidence_contract(
             "incremental",
         }
         and type(payload.get("schema_version")) is int
-        and payload.get("schema_version") == 1
+        and payload.get("schema_version") in (1, 2)
         and payload.get("memoryforge_commit") == commit
         and payload.get("memoryforge_worktree_dirty") is False
         and _payload_private_detail_leaks(payload) == 0
@@ -4030,9 +4030,10 @@ def _raw_code_wiki_evidence_contract(
             payload.get("workflow"),
             {
                 "wiki_file_count": 8,
+                **({"repository_overview_count": 1} if payload.get("schema_version") == 2 else {}),
                 "lint": {
                     "status": "clean",
-                    "checked_pages": 8,
+                    "checked_pages": 9 if payload.get("schema_version") == 2 else 8,
                     "issues": [],
                 },
             },

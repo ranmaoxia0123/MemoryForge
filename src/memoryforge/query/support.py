@@ -135,19 +135,11 @@ def _all_explicit_code_identifiers(question: str) -> tuple[str, ...]:
 
 
 def _support_identifiers(question: str) -> tuple[str, ...]:
-    identifiers = _all_explicit_code_identifiers(question)
-    strong_identifiers = tuple(
+    # Remove repository/product context before preferring strong identifiers.
+    # Otherwise "in Node.js" hides a requested camelCase API such as CallTracker.
+    identifiers = tuple(
         identifier
-        for identifier in identifiers
-        if "." in identifier
-        or "_" in identifier
-        or "$" in identifier
-        or f"`{identifier}`" in question
-    )
-    candidates = strong_identifiers or identifiers
-    return tuple(
-        identifier
-        for identifier in candidates
+        for identifier in _all_explicit_code_identifiers(question)
         if re.search(
             rf"\bin\s+`?{re.escape(identifier)}`?(?:\W|$)",
             question,
@@ -156,6 +148,15 @@ def _support_identifiers(question: str) -> tuple[str, ...]:
         is None
         and re.search(rf"`?{re.escape(identifier)}`?\s*(?:中|内|用例)", question) is None
     )
+    strong_identifiers = tuple(
+        identifier
+        for identifier in identifiers
+        if "." in identifier
+        or "_" in identifier
+        or "$" in identifier
+        or f"`{identifier}`" in question
+    )
+    return strong_identifiers or identifiers
 
 
 def _citation_fact_key(
@@ -382,8 +383,13 @@ def _support_score(
     ):
         failed_hard_gates.append("incomplete_evidence_fragment")
         enforced = True
-    if code_enforced and explicit_identifiers and exact_identifier_coverage < 1:
+    identifier_enforced = code_enforced or any(
+        "." in identifier or "_" in identifier or f"`{identifier}`" in question
+        for identifier in explicit_identifiers
+    )
+    if identifier_enforced and exact_identifier_coverage < 1:
         failed_hard_gates.append("exact_identifier_not_covered")
+        enforced = True
     if enforced and score < _SUPPORT_THRESHOLD:
         failed_hard_gates.append("score_below_threshold")
     if enforced and quantity_question and not quantity_covered:

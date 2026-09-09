@@ -51,6 +51,7 @@ from memoryforge.query.support import (
     _local_english_matching_terms,
     _matching_terms,
     _section_matching_terms,
+    _support_identifiers,
     _support_score,
     _terms,
 )
@@ -208,7 +209,9 @@ def answer_question(
         return _unknown_payload(debug, trace)
     required_source_groups = _explicit_applied_source_groups(workspace_root, question)
     versions, version_source_groups = _version_source_groups(workspace_root, question)
-    use_section_routes = use_section_routes or bool(versions)
+    requested_identifiers = _support_identifiers(question)
+    document_identifiers = requested_identifiers if versions else ()
+    use_section_routes = use_section_routes or bool(versions or requested_identifiers)
     if version_source_groups and not all(version_source_groups):
         return _unknown_payload(debug, trace, unsupported_aspects=["requested_version_not_found"])
     required_source_labels = (*explicit_titles, *versions)
@@ -491,6 +494,14 @@ def answer_question(
                 citation["source_version"],
             ) not in explicit_source_keys:
                 continue
+            if document_identifiers and not any(
+                identifier
+                in _code_identifier_tokens(
+                    f"{citation.get('section_path', '')} {citation['quote']}"
+                )
+                for identifier in document_identifiers
+            ):
+                continue
             if _is_conversation_search_clue(citation):
                 continue
             if page_path in topic_contents:
@@ -641,7 +652,7 @@ def answer_question(
         feishu_page_paths=feishu_page_paths,
         prefer_capability_facts=prefer_capability_facts,
         prefer_cleanup_conclusion=prefer_cleanup_conclusion,
-        prefer_exact_identifiers=identifier_terms,
+        prefer_exact_identifiers=_terms(" ".join(requested_identifiers)) or identifier_terms,
         prefer_feishu_operations=prefer_feishu_operations,
     )
     candidate_matches = _rank_matches(
@@ -660,7 +671,7 @@ def answer_question(
         feishu_page_paths=feishu_page_paths,
         prefer_capability_facts=prefer_capability_facts,
         prefer_cleanup_conclusion=prefer_cleanup_conclusion,
-        prefer_exact_identifiers=identifier_terms,
+        prefer_exact_identifiers=_terms(" ".join(requested_identifiers)) or identifier_terms,
         prefer_feishu_operations=prefer_feishu_operations,
     )
     model_candidates = [
@@ -868,6 +879,15 @@ def answer_question(
         support["enforced"] = True
         if "stale_sources" not in support["failed_hard_gates"] and total_penalty > 0:
             support["failed_hard_gates"].append("stale_sources")
+    if "exact_identifier_not_covered" in support["failed_hard_gates"] and not any(
+        path in code_page_paths for path, _ in selected
+    ):
+        return _unknown_payload(
+            debug,
+            trace,
+            support=support,
+            unsupported_aspects=["exact_identifier_not_covered"],
+        )
     if not support["sufficient"]:
         selected_sources = {
             (citation["source_id"], citation["source_version"]) for _, citation in selected
@@ -2148,6 +2168,7 @@ def _rank_matches(
         )
         score = (
             int(_citation_fact_key(page_path, citation) in exact_symbol_fact_keys),
+            len(direct_overlap & focus_terms) if page_aware else 0,
             int(
                 bool(prefer_exact_identifiers)
                 and prefer_exact_identifiers <= _citation_terms(citation)
@@ -2439,6 +2460,13 @@ def _question_focus_terms(question: str) -> set[str]:
     Repository names are commonly placed before ``的``. They identify where to
     search, while the suffix identifies which setting or behaviour to answer.
     """
+    classification = re.search(
+        r"\b(?:what|which) (?:type|kind|category) of (.+?) (?:is|are)\b",
+        question,
+        re.IGNORECASE,
+    )
+    if classification:
+        return _terms(classification[1])
     for match in _WORDS.finditer(question):
         token = match.group()
         if _CJK.fullmatch(token) and "的" in token:

@@ -18,6 +18,7 @@ from memoryforge.code.code_index import build_code_index
 from memoryforge.code.code_models import ModuleNode
 from memoryforge.compiler.code_wiki_compiler import compile_code_wiki
 from memoryforge.compiler.module_planner import build_module_plan
+from memoryforge.storage.projection import is_generated_repository_overview
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = REPO_ROOT / "demo/fixtures/code_wiki_project"
@@ -150,7 +151,7 @@ def build_evidence(
         and incremental_result["stable_symbol_ids"]
     )
     evidence = {
-        "schema_version": 1,
+        "schema_version": 2,
         "memoryforge_commit": _git_output(REPO_ROOT, "rev-parse", "HEAD"),
         "memoryforge_worktree_dirty": bool(_git_output(REPO_ROOT, "status", "--porcelain")),
         "fixture": {
@@ -162,6 +163,10 @@ def build_evidence(
         "workflow": {
             "wiki_file_count": sum(
                 path.startswith("wiki/pages/code/") for path in applied["files"]
+            ),
+            "repository_overview_count": sum(
+                is_generated_repository_overview(path.read_text(encoding="utf-8"))
+                for path in (workspace / "wiki/pages").rglob("*.md")
             ),
             "lint": lint,
         },

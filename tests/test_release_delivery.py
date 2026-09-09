@@ -469,3 +469,31 @@ def _tar(path: Path, name: str) -> None:
     info.size = len(payload)
     with tarfile.open(path, "w:gz") as archive:
         archive.addfile(info, io.BytesIO(payload))
+
+
+def test_code_evidence_counts_navigation_without_weakening_legacy_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = json.loads(
+        (
+            release_check.REPO_ROOT
+            / "demo/results/artifacts/release_candidate_delivery_candidate_11/"
+            "macos/code-wiki-evidence.json"
+        ).read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(release_check, "_git_output", lambda *_args: evidence["memoryforge_commit"])
+    release_check._validate_code_evidence(evidence)
+    evidence["workflow"]["lint"]["checked_pages"] = 9
+    with pytest.raises(SystemExit, match="Evidence contract failed"):
+        release_check._validate_code_evidence(evidence)
+    evidence["schema_version"] = 2
+    evidence["workflow"]["repository_overview_count"] = 1
+    release_check._validate_code_evidence(evidence)
+    for count in (8, 10):
+        evidence["workflow"]["lint"]["checked_pages"] = count
+        with pytest.raises(SystemExit, match="Evidence contract failed"):
+            release_check._validate_code_evidence(evidence)
+    evidence["workflow"]["lint"]["checked_pages"] = 9
+    evidence["workflow"]["repository_overview_count"] = 0
+    with pytest.raises(SystemExit, match="Evidence contract failed"):
+        release_check._validate_code_evidence(evidence)
