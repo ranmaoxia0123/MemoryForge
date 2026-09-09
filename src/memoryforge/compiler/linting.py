@@ -18,6 +18,7 @@ from memoryforge.compiler.wiki_facts import (
 )
 from memoryforge.storage.blob_store import blob_relative_path as _blob_relative_path
 from memoryforge.storage.errors import WorkspaceIntegrityError, WorkspaceSecurityError
+from memoryforge.storage.folder_dependencies import stale_folder_source_versions
 from memoryforge.storage.projection import is_generated_navigation_page
 
 _INDEX_ENTRY = re.compile(
@@ -112,6 +113,7 @@ def lint_workspace(
 
     evidence_cache: dict[tuple[str, int], str] = {}
     try:
+        stale_dependencies = stale_folder_source_versions(index)
         for path in pages:
             relative_path = str(path.relative_to(workspace_root))
             try:
@@ -126,6 +128,18 @@ def lint_workspace(
                 )
                 continue
             _lint_page_facts(index, relative_path, content, issues)
+            if any(
+                (citation["source_id"], citation["source_version"]) in stale_dependencies
+                for citation in parse_page_citations(content)
+            ):
+                issues.append(
+                    _issue(
+                        "stale_source_dependency",
+                        relative_path,
+                        "a linked folder source changed or was deleted; "
+                        "review and update the dependent source",
+                    )
+                )
             citation_source_ids = _page_citation_source_ids(content)
             if citation_source_ids is None:
                 issues.append(

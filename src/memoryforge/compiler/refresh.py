@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from memoryforge.adapters.feishu_adapter import FeishuDocumentSyncResult, refresh_feishu_documents
+from memoryforge.adapters.folder_adapter import refresh_folders
 from memoryforge.adapters.git_sync import sync_git_checkout
-from memoryforge.core.models import GitRepositorySyncResult
+from memoryforge.core.models import FolderSyncResult, GitRepositorySyncResult
 from memoryforge.storage.workspace import list_git_checkouts
 
 
@@ -17,10 +18,14 @@ class RefreshResult:
     git: tuple[GitRepositorySyncResult, ...]
     feishu: tuple[FeishuDocumentSyncResult, ...]
 
+    folders: tuple[FolderSyncResult, ...] = ()
+
     @property
     def changed(self) -> bool:
-        return any(result.created or result.updated for result in self.git) or any(
-            result.created or result.updated or result.deleted for result in self.feishu
+        return (
+            any(result.created or result.updated for result in self.git)
+            or any(result.created or result.updated or result.deleted for result in self.feishu)
+            or any(result.created or result.updated or result.deleted for result in self.folders)
         )
 
 
@@ -44,9 +49,11 @@ def route_refresh_impact(
 
 
 def refresh_workspace(workspace: Path) -> RefreshResult:
-    """Sync local Git snapshots and previously imported Feishu documents once."""
+    """Sync registered local Git, folder snapshots and Feishu documents once."""
     git = tuple(
         sync_git_checkout(workspace, repository.repository_id)
         for repository in list_git_checkouts(workspace)
     )
-    return RefreshResult(git=git, feishu=refresh_feishu_documents(workspace))
+    return RefreshResult(
+        git=git, feishu=refresh_feishu_documents(workspace), folders=refresh_folders(workspace)
+    )

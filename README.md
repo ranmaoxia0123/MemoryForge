@@ -32,33 +32,63 @@ Local-first knowledge compiler — AI 只能提案，人审核后才发布；每
 给 AI 编程助手补上项目知识，常见做法有两种，各有代价：
 
 - **把文档整包塞进上下文**：昂贵、混乱，而且马上过期；
-- **搭一套 RAG**：切片召回的答案无法溯源，索引更新没有任何人审核。
+- **搭一套基础 RAG**：解决资料检索与问答，但知识整理、审阅和增量维护仍需要单独设计。
 
 MemoryForge 的思路是**编译**：把 Git 仓库、Markdown/TXT/HTML、飞书文档、公开网页、
 GitHub Issue/PR 和 AI 对话，统一整理成一份人类可读、Git 可版本化的 Markdown Wiki。
-AI 只能生成提案（ChangeSet），人审核后才真正发布；每条结论都能回放到固定版本的原文
-位置。最终产物仍是普通 Markdown、Git 历史与本地 SQLite 索引。
+AI 只能生成提案（ChangeSet），人审核后才真正发布；原文证据固定到来源版本和具体位置，
+模型综合说明仍需核验。最终产物仍是普通 Markdown、Git 历史与本地 SQLite 索引。
 
 | 能力 | 说明 |
 | --- | --- |
 | **更新可审核** | 生成 → review → approve → apply 四步分离，AI 不能直接修改正式 Wiki |
-| **结论可追溯** | Citation 锁定 SourceVersion、原文 locator、Git Commit 与 SHA-256 |
+| **原文证据可追溯** | Citation 锁定 SourceVersion、原文 locator、Git Commit 与 SHA-256 |
 | **上下文按需加载** | `INDEX.md` + SQLite FTS5 先定位页面，需要核验才展开原文 Evidence |
 | **证据不足不猜测** | `grounded / partial / no_local_evidence` 三级证据状态 |
 | **旧会话可选择性加载** | 按主题聚合历史对话，按需把指定会话上下文带入当前任务 |
 | **多客户端统一接入** | Codex、Claude Code、Gemini 共用同一个本地 MCP Server |
 | **本地优先** | Git、飞书、代码和会话来源默认 `local_only`，资料留在本机 |
 
-## 与普通 RAG 的区别
+## Wiki 与 RAG 如何配合
 
-![MemoryForge 与普通 RAG 的管线对比](assets/diagrams/vs-rag-pipeline.zh.svg)
+MemoryForge 的问答也使用检索增强。Wiki 的目标是把多份资料中的规则、设计原因、
+变更历史和例外整理成可复用的主题，让人可以直接阅读，后续问答也能利用已有整理。
+RAG 同样可以实现引用、审阅和版本管理；这些能力不是 Wiki 独占的优势。
 
-| 普通 RAG | MemoryForge |
-| --- | --- |
-| 原文切片后直接召回 | 先编译为可读、可审核、可版本化的 Wiki |
-| 更新直接替换索引 | 先生成 ChangeSet，再 `review → approve → apply` |
-| 主题相关就尝试回答 | 证据状态不足时保留边界，不补全项目事实 |
-| 很难重放一次结论 | Citation 固定到来源版本、locator、Commit 和 SHA-256 |
+默认 `ingest` 生成确定性的来源摘录，适合零模型成本的导入和证据查询。
+`ingest --llm` 使用配置的模型编译主题；模型说明仍标为未验证，原文引用按章节组织。
+对于已经发布的摘录，可以明确选择来源重组：
+
+```bash
+memoryforge ingest --llm --reorganize --source <source-id-a> --source <source-id-b> --workspace ./my-wiki
+```
+
+省略 `--source` 会重组全部当前来源。`local_only` 仍需 `--allow-local-llm`；命令只生成
+提案，后续仍需 `review / approve / apply`。只有使用者确认模型和资料范围后才运行模型。
+
+新资料可扩展已有主题；旧来源更新时，编译器提供同一主题全部当前来源和旧草稿，
+保留仍有依据的结论并显示冲突。综合类问题优先读取未过期的主题页，模型回答同时接收
+主题说明与原文证据。使用 `ask --llm` 查询主题中的细节时，会从该主题对应的已发布、
+当前来源补充原文段落；综合问答返回证据不足时，最多再回查原文并调用一次模型。
+这类引用标为 `evidence_origin: source_passage`，可用 `--verify` 核验原文位置，
+不会写进正式 Wiki。精确版本、代码路由和无模型的 MCP Wiki 证据合同保持原有范围。
+任一主题来源过期时，综合说明停止参与回答。普通确定性导入不会把新格式主题静默覆盖成摘录，
+需要显式模型重编译；来源删除仍先走可审核的清理提案。
+
+代价是编译、审核和更新成本，以及模型整理可能遗漏或误解资料。是否降低重复查询成本、
+提高跨资料回答质量，需要在相同模型与上下文预算下对比原文 RAG、Wiki RAG 和混合检索。
+本地受控测试只验证编译与复用流程，不代表真实模型的综合能力或准确率提升。
+
+`demo/run_wiki_ablation.py` 提供零模型调用的原文 BM25、Wiki 和混合证据对照，统一限制
+序列化上下文字符数，并统计标注片段覆盖率。它是检索表示的消融工具，字符数不等于
+模型 Token 数，片段覆盖率也不等于回答准确率；其中混合组是实验用的上下文组装方式。
+
+```bash
+PYTHONPATH=src python demo/run_wiki_ablation.py --workspace ./my-wiki --cases cases.json --max-characters 3000 --output ablation.json
+```
+
+`cases.json` 使用数组，每项包含 `id`、`question` 和原文片段列表 `expected_evidence`。
+只有当前已发布的公开来源参与这项对照，脚本不发送资料给模型。
 
 ## 核心设计决策
 
@@ -75,8 +105,9 @@ SourceVersion、原文 locator、Commit 与 SHA-256，所以任何历史结论�
 "当时读的是哪个版本的哪段原文"。
 
 **为什么用 SQLite FTS5，而不是向量数据库？**
-Wiki 页面是编译产物，不是原文切片：数量少、标题和结构语义强，全文检索足以定位
-页面，结果完全可解释，且零外部服务依赖。向量数据库在非目标清单里（见文末）。
+SQLite FTS5 提供零外部服务依赖的全文检索与 BM25 排序，适合作为本地基础检索。
+主题结构提供额外的组织信息，但不能保证全文检索覆盖同义表达或所有语义关系；
+是否需要语义检索应由目标资料与问题集的评测决定。
 
 **为什么要有 `evidence_status` 三级？**
 强制模型把"有本地证据的结论"和"通用猜测"分开说：`grounded` 必须附带 Citation；

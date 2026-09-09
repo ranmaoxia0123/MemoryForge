@@ -1180,7 +1180,8 @@ def test_llm_compiler_can_extend_a_related_existing_page(
     prompt = provider.messages[1]["content"]
     assert "EXISTING PAGE CARDS:" in prompt
     assert f"PATH: {original_path}" in prompt
-    assert first_text not in prompt
+    assert first_text in prompt
+    assert "Cache design notes." in prompt
 
 
 def test_llm_compiler_rejects_duplicate_source_ownership_before_staging(

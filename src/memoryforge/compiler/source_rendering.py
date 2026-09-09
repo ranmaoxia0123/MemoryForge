@@ -101,7 +101,7 @@ def _read_source_text(workspace: Workspace, source: CurrentSource) -> str:
 def _meaningful_paragraphs(content: str) -> list[SourceFact]:
     facts = _markdown_facts(content)
     if facts:
-        return facts[:_LOCAL_FACT_LIMIT]
+        return _chapter_facts(facts)
     for line in content.splitlines():
         candidate = line.lstrip("#").strip()
         if candidate:
@@ -180,6 +180,11 @@ def _feishu_facts(content: str) -> list[SourceFact]:
     facts = _markdown_facts(content)
     if not facts:
         return _meaningful_paragraphs(content)
+    return _chapter_facts(facts)
+
+
+def _chapter_facts(facts: list[SourceFact]) -> list[SourceFact]:
+    """Share the bounded Wiki fact budget across document sections."""
     chapters: dict[tuple[str, ...], list[SourceFact]] = {}
     for fact in facts:
         chapters.setdefault(fact.section_path, []).append(fact)

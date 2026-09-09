@@ -58,7 +58,11 @@ def test_history_and_rollback_restore_wiki_and_query_projection(
     assert rollback_payload["commit"] not in {first_commit, second_commit}
     assert answer.exit_code == 0, answer.output
     answer_payload = json.loads(answer.stdout)
-    assert answer_payload["status"] == "answered"
+    # Rollback restores the published evidence, not the newer imported source.
+    # Keep the historical answer and citation, but expose their freshness gap.
+    assert answer_payload["status"] == "unknown"
+    assert answer_payload["evidence_status"] == "partial"
+    assert "stale_sources" in answer_payload["unsupported_aspects"]
     assert "sixty seconds" in answer_payload["answer"]
     assert "ninety seconds" not in answer_payload["answer"]
     assert answer_payload["source_version"] == 1

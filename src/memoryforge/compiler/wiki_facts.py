@@ -66,6 +66,7 @@ class CitationPayload(TypedDict):
     is_summary: NotRequired[bool]
     grounding: NotRequired[Literal["exact", "semantic"]]
     wiki_page: NotRequired[str]
+    evidence_origin: NotRequired[Literal["source_passage"]]
 
 
 @dataclass(frozen=True)

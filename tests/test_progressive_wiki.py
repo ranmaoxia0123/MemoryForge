@@ -444,10 +444,15 @@ def test_compile_pending_reads_only_changed_source_blob(tmp_path: Path, monkeypa
         return original_read_source(compilation_workspace, source)
 
     original_read_text = Path.read_text
+    changed_pages = {
+        workspace / path for path in opened.page_paths_for_source(cache_source["source_id"])
+    }
 
     def reject_page_read(path: Path, *args: object, **kwargs: object) -> str:
-        if path.is_relative_to(workspace / "wiki/pages"):
-            raise AssertionError("incremental compilation must not read page frontmatter")
+        # Reading the changed page's format prevents overwriting a compiled topic.
+        # Unchanged pages still must not be scanned during deterministic refresh.
+        if path.is_relative_to(workspace / "wiki/pages") and path not in changed_pages:
+            raise AssertionError("incremental compilation must not read unchanged pages")
         return original_read_text(path, *args, **kwargs)
 
     monkeypatch.setattr(compiler, "_read_source_text", track_blob_read)

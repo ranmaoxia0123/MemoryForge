@@ -8,6 +8,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+from collections.abc import Iterator
 from contextlib import suppress
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -183,18 +184,23 @@ class GitVersionStore:
                     raise WorkspaceError("invalid historical Wiki file identity")
             if not paths:
                 return {}
-        completed = self._run(
-            ["archive", "--format=tar", commit, "--", *selected],
-            check=True,
-            text=False,
-        )
-        archive_bytes = bytes(completed.stdout)
-        with tarfile.open(fileobj=BytesIO(archive_bytes), mode="r:") as archive:
-            return {
-                member.name: extracted.read().decode("utf-8")
-                for member in archive.getmembers()
-                if member.isfile() and (extracted := archive.extractfile(member)) is not None
-            }
+        contents: dict[str, str] = {}
+        for batch in _path_batches(selected):
+            completed = self._run(
+                ["--literal-pathspecs", "archive", "--format=tar", commit, "--", *batch],
+                check=True,
+                text=False,
+            )
+            with tarfile.open(fileobj=BytesIO(bytes(completed.stdout)), mode="r:") as archive:
+                contents.update(
+                    {
+                        member.name: extracted.read().decode("utf-8")
+                        for member in archive.getmembers()
+                        if member.isfile()
+                        and (extracted := archive.extractfile(member)) is not None
+                    }
+                )
+        return contents
 
     def list_wiki_paths_at(self, commit: str) -> tuple[str, ...]:
         """List stable Wiki pages from one fixed Commit without reading their bodies."""
@@ -305,12 +311,11 @@ class GitVersionStore:
             else:
                 absent.append(path)
         if present:
-            self._run(
-                ["restore", "--source", commit, "--staged", "--worktree", "--", *present],
-                check=True,
+            self._run_paths(
+                ["restore", "--source", commit, "--staged", "--worktree"], tuple(present)
             )
         if absent:
-            self._run(["reset", "--quiet", "HEAD", "--", *absent], check=True)
+            self._run_paths(["reset", "--quiet", "HEAD"], tuple(absent))
             for path in absent:
                 target = self.root / path
                 try:
@@ -330,10 +335,10 @@ class GitVersionStore:
         """Commit only the stable Wiki paths produced by one approved ChangeSet."""
         if not paths:
             raise WorkspaceError("cannot create an empty knowledge commit")
-        self._run(["add", "--", *paths], check=True)
-        self._run(
-            ["commit", "--quiet", "--only", "-m", message, "--", *paths],
-            check=True,
+        self._run_paths(["add"], paths)
+        self._run_paths(
+            ["commit", "--quiet", "--only", "-m", message],
+            paths,
             extra_config=self._commit_identity(),
         )
         commit = self.head()
@@ -342,15 +347,36 @@ class GitVersionStore:
         return commit
 
     def require_clean_paths(self, paths: tuple[str, ...]) -> None:
-        completed = self._run(
-            ["status", "--porcelain", "--untracked-files=all", "--", *paths],
-            check=True,
-        )
-        if completed.stdout.strip():
-            raise WorkspaceError("refusing to apply over uncommitted changes in target Wiki paths")
+        # git status has no --pathspec-from-file; bound argv without weakening the gate.
+        for batch in _path_batches(paths):
+            completed = self._run(
+                [
+                    "--literal-pathspecs",
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                    "--",
+                    *batch,
+                ],
+                check=True,
+            )
+            if completed.stdout.strip():
+                raise WorkspaceError(
+                    "refusing to apply over uncommitted changes in target Wiki paths"
+                )
 
     def reset_paths(self, paths: tuple[str, ...]) -> None:
-        self._run(["reset", "--quiet", "HEAD", "--", *paths], check=True)
+        self._run_paths(["reset", "--quiet", "HEAD"], paths)
+
+    def _run_paths(
+        self, arguments: list[str], paths: tuple[str, ...], *, extra_config: tuple[str, ...] = ()
+    ) -> None:
+        self._run(
+            ["--literal-pathspecs", *arguments, "--pathspec-from-file=-", "--pathspec-file-nul"],
+            check=True,
+            extra_config=extra_config,
+            input="".join(path + "\0" for path in paths),
+        )
 
     def _commit_identity(self) -> tuple[str, ...]:
         name = self._config_value("user.name")
@@ -385,6 +411,7 @@ class GitVersionStore:
         allow_missing_repository: bool = False,
         index_file: Path | None = None,
         text: bool = True,
+        input: str | None = None,
     ) -> subprocess.CompletedProcess[Any]:
         self.validate_metadata(allow_missing=allow_missing_repository)
         command = ["git"]
@@ -422,6 +449,7 @@ class GitVersionStore:
             capture_output=True,
             text=text,
             env=environment,
+            input=input,
         )
         if check and completed.returncode != 0:
             stderr = (
@@ -438,3 +466,17 @@ class GitVersionStore:
             raise WorkspaceError(f"Git command failed: {detail}")
         self.validate_metadata()
         return completed
+
+
+def _path_batches(paths: tuple[str, ...]) -> Iterator[list[str]]:
+    batch: list[str] = []
+    size = 0
+    for path in paths:
+        path_size = len(os.fsencode(path)) + 1
+        if batch and size + path_size > 16000:
+            yield batch
+            batch, size = [], 0
+        batch.append(path)
+        size += path_size
+    if batch:
+        yield batch

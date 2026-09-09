@@ -155,6 +155,9 @@ def build_evidence(workdir: Path) -> dict[str, Any]:
         _repository_id_of(workspace, checkout): checkout for checkout in checkouts.values()
     }
     results = [_run_context_case(workspace, checkouts, case) for case in CONTEXT_CASES]
+    # Compare both query paths against the same published source state, before
+    # the stale-citation scenario mutates and re-syncs the README.
+    baseline = _run_baseline(workspace, checkouts)
     # Grounding and isolation apply only to citations that were surfaced;
     # abstaining cases correctly return no citations at all.
     citation_checks = [_check_citation(case) for case in results if case["citations"]]
@@ -170,7 +173,6 @@ def build_evidence(workdir: Path) -> dict[str, Any]:
     unmapped = _run_unmapped(workspace, workdir)
     # Scenario 10: a re-synced source version makes the old citation stale.
     stale = _run_stale_citation(workspace, checkouts, repository_ids, results)
-    baseline = _run_baseline(workspace, checkouts)
 
     context_sizes = [case["output_characters"] for case in results]
     metrics: dict[str, Any] = {

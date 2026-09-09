@@ -216,11 +216,25 @@ CREATE TABLE IF NOT EXISTS folder_imports (
     registered_at TEXT NOT NULL
 )""",
     """
+CREATE TABLE IF NOT EXISTS folder_refresh_sources (
+    folder_id TEXT PRIMARY KEY REFERENCES folder_imports(folder_id),
+    root_path TEXT NOT NULL,
+    category TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    sensitivity TEXT NOT NULL
+)""",
+    """
 CREATE TABLE IF NOT EXISTS folder_source_versions (
     source_version_id INTEGER PRIMARY KEY REFERENCES source_versions(id),
     folder_id TEXT NOT NULL REFERENCES folder_imports(folder_id),
     relative_path TEXT NOT NULL,
     UNIQUE(folder_id, relative_path, source_version_id)
+)""",
+    """
+CREATE TABLE IF NOT EXISTS folder_source_dependencies (
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id),
+    target_source_version_id INTEGER NOT NULL REFERENCES source_versions(id),
+    PRIMARY KEY(source_version_id, target_source_version_id)
 )""",
     """
 CREATE INDEX IF NOT EXISTS idx_folder_source_versions_path

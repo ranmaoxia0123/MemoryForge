@@ -817,7 +817,7 @@ def html_import(
 
 @app.command()
 def refresh(workspace: WorkspaceOption = Path(".")) -> None:
-    """Manually refresh all registered local Git and Feishu sources once."""
+    """Manually refresh registered Git, local folder and Feishu sources once."""
     try:
         opened = Workspace.open(workspace)
         result = refresh_workspace(opened.root)
@@ -857,6 +857,7 @@ def refresh(workspace: WorkspaceOption = Path(".")) -> None:
                     }
                     for item in result.feishu
                 ],
+                "folders": [item.model_dump(mode="json") for item in result.folders],
             },
             ensure_ascii=False,
             indent=2,
@@ -1001,6 +1002,7 @@ def watch(
                         }
                         for item in refreshed.feishu
                     ],
+                    "folders": [item.model_dump(mode="json") for item in refreshed.folders],
                 }
                 if changesets:
                     payload["status"] = "proposed"
@@ -1260,6 +1262,13 @@ def ingest(
         bool,
         typer.Option("--llm", help="Use the configured OpenAI-compatible PageChange provider."),
     ] = False,
+    reorganize: Annotated[
+        bool,
+        typer.Option(
+            "--reorganize",
+            help="Recompile selected sources (all by default) into topics; requires --llm.",
+        ),
+    ] = False,
     allow_local_llm: Annotated[
         bool,
         typer.Option(
@@ -1278,6 +1287,8 @@ def ingest(
 ) -> None:
     if not pending:
         _exit_with_safe_error(ValueError("ingest currently requires --pending"))
+    if reorganize and (not llm or code_wiki is not None):
+        _exit_with_safe_error(ValueError("--reorganize requires --llm and cannot use --code-wiki"))
     if code_wiki is not None and source:
         _exit_with_safe_error(ValueError("--code-wiki cannot be combined with --source"))
     if code_wiki is not None and llm and not allow_local_llm:
@@ -1302,6 +1313,7 @@ def ingest(
                 source_ids=tuple(source or ()),
                 provider=provider,
                 allow_local=allow_local_llm,
+                reorganize_existing=reorganize,
             )
         if compilation is None:
             typer.echo(

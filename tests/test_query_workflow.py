@@ -1720,7 +1720,7 @@ def test_candidate_pages_prioritize_retrieval_v2_pages(
     assert selected == [preferred_page]
 
 
-def test_candidate_pages_prefers_index_routes_before_relaxed_fts_matches(
+def test_candidate_pages_prefers_raw_bm25_before_sparse_index_routes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1767,7 +1767,7 @@ def test_candidate_pages_prefers_index_routes_before_relaxed_fts_matches(
         prefer_index_routes=True,
     )
 
-    assert selected == [index_page, broad_page]
+    assert selected == [broad_page, another_broad_page]
     assert calls == [True, False]
 
 

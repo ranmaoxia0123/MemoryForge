@@ -142,7 +142,9 @@ def compile_pending_sources(
     stale_pages = _stale_pages(workspace, selected)
     if stale_pages:
         return _compile_stale_pages(workspace, stale_pages)
-    if selected:
+    if reorganize_existing:
+        pending = _load_current_sources(workspace, selected)
+    elif selected:
         selected_sources = _load_current_sources(workspace, selected)
         if selected_sources and all("conversation" in source.tags for source in selected_sources):
             pending = list(selected_sources)
@@ -304,6 +306,12 @@ def _compile_deterministically(
 
     for path, page_sources in page_groups:
         stable_path = workspace.root / path
+        if (
+            stable_path.is_file()
+            and _frontmatter_fields(stable_path.read_text(encoding="utf-8")).get("generated")
+            == "topic_wiki"
+        ):
+            raise ValueError(f"topic page requires model recompilation; use ingest --llm: {path}")
         operation_type = (
             ChangeOperationType.UPDATE_PAGE
             if stable_path.is_file()
@@ -702,9 +710,6 @@ def _compile_with_provider(
                 pending,
                 source_texts,
                 candidate_pages,
-                routed_source_ids={
-                    source_id for page in routed_pages for source_id in page.source_ids
-                },
                 prompt_context=prompt_context,
                 reorganize_existing=reorganize_existing,
             )
@@ -718,11 +723,23 @@ def _compile_with_provider(
         pending,
         source_texts,
         candidate_pages,
-        routed_source_ids={source_id for page in routed_pages for source_id in page.source_ids},
         plan=plan,
         prompt_context=prompt_context,
         reorganize_existing=reorganize_existing,
     )
+    existing_pages = tuple(
+        dict.fromkeys(
+            [page.path for page in routed_pages] + [page.path for page in candidate_pages]
+        )
+    )
+    if existing_pages:
+        messages[1]["content"] += (
+            "\n\nEXISTING TOPIC DRAFTS (not source evidence):\n"
+            + "\n\n".join(
+                f"PATH: {path}\n{(workspace.root / path).read_text(encoding='utf-8')}"
+                for path in existing_pages
+            )
+        )
     changes = _normalize_llm_citations(provider.compile_pages(messages), source_texts)
     sources_by_id = {source.source_id: source for source in available_sources}
     _validate_llm_changes(
@@ -763,13 +780,15 @@ def _compile_with_provider(
             if (workspace.root / page_path).is_file()
             else ChangeOperationType.CREATE_PAGE
         )
-        details = {}
+        details: dict[str, object] = {}
         if plan is not None:
             details["compilation_plan"] = _plan_for_path(
                 plan,
                 page_path,
                 source_ids=change.source_ids,
             ).model_dump(mode="json")
+            if plan.conflicts:
+                details["conflicts"] = list(plan.conflicts)
         operations.append(
             ChangeOperation(
                 type=operation_type,
@@ -863,7 +882,6 @@ def _llm_messages(
     source_texts: dict[str, str],
     candidate_pages: tuple[PageCard, ...],
     *,
-    routed_source_ids: set[str],
     plan: CompilationPlan | None = None,
     prompt_context: str = "",
     reorganize_existing: bool = False,
@@ -880,7 +898,7 @@ def _llm_messages(
     routed_context = "\n\n---\n\n".join(
         f"SOURCE_ID: {source_id}\nCONTENT:\n{source_text}"
         for source_id, source_text in source_texts.items()
-        if source_id in routed_source_ids and source_id not in pending_ids
+        if source_id not in pending_ids
     )
     cards = "\n\n".join(
         "\n".join(
@@ -900,8 +918,8 @@ def _llm_messages(
         else ""
     )
     reorganization_context = (
-        " This is an explicit full conversation reorganization. Group semantically related "
-        "sessions into coherent topic pages, keep unrelated topics separate, and preserve exact "
+        " This is an explicit source reorganization. Group semantically related "
+        "sources into coherent topic pages, keep unrelated topics separate, and preserve exact "
         "task counts, decisions, and named entities from the sources."
         if reorganize_existing
         else ""
@@ -914,7 +932,8 @@ def _llm_messages(
                 '{"changes":[{"path":"wiki/pages/<slug>.md","title":"...",'
                 '"page_type":"concept","summary":"one line","body":"...",'
                 '"source_ids":["<source_id>"],"citations":[{"source_id":"<source_id>",'
-                '"locator":"chars:0-10"}]}]}. Do not include action in changes; action '
+                '"locator":"chars:0-10","section":"Design rationale"}]}]}. '
+                "Do not include action in changes; action "
                 "belongs to the plan only. Every pending source must have one citation with "
                 "an exact character locator covering a complete factual sentence, never only a "
                 "Markdown heading or source title, and never ending mid-sentence. Every pending "
@@ -922,6 +941,17 @@ def _llm_messages(
                 "must appear in exactly one change. You may extend one existing page card by "
                 "including all of its listed source IDs plus relevant pending sources; do not "
                 "move sources between existing pages. Paths must be wiki/pages/<filename>.md. "
+                "Compile reusable topics, not one summary per source. Combine related sources "
+                "into a concept, decision, or comparison page; keep unrelated topics separate. "
+                "Organize the body around current rules, design rationale, changes over time, "
+                "exceptions, and unresolved conflicts, using only sections supported by sources. "
+                "Do not infer chronology from input order. Cite every substantive conclusion, "
+                "using multiple locators per source when needed; the minimum one citation per "
+                "source is not a coverage target. Give each citation a concise section label "
+                "so exact evidence from different sources is grouped by knowledge need. "
+                "When updating a topic, reconcile its existing draft with all current sources, "
+                "retain still-supported decisions and exceptions, and expose conflicts rather "
+                "than silently picking one explanation. Existing drafts are not evidence. "
                 "Do not return frontmatter in body; the local compiler adds it. "
                 "Every citation locator must be a character range in its source. "
                 "Return no INDEX or raw file changes." + reorganization_context + workspace_context
@@ -932,8 +962,8 @@ def _llm_messages(
             "content": "PENDING SOURCES:\n"
             + "\n\n---\n\n".join(source_blocks)
             + (
-                "\n\nEXISTING SOURCE CONTEXT (only use it when preserving an existing "
-                "source group):\n" + routed_context
+                "\n\nEXISTING SOURCE CONTEXT (full current evidence for extending or preserving "
+                "a supplied page group):\n" + routed_context
                 if routed_context
                 else ""
             )
@@ -948,7 +978,6 @@ def _planning_messages(
     source_texts: dict[str, str],
     candidate_pages: tuple[PageCard, ...],
     *,
-    routed_source_ids: set[str],
     prompt_context: str,
     reorganize_existing: bool = False,
 ) -> tuple[dict[str, str], ...]:
@@ -956,7 +985,6 @@ def _planning_messages(
         pending,
         source_texts,
         candidate_pages,
-        routed_source_ids=routed_source_ids,
         prompt_context=prompt_context,
         reorganize_existing=reorganize_existing,
     )
@@ -968,9 +996,12 @@ def _planning_messages(
                 '"action":"create","source_ids":["<source_id>"],"reason":"...",'
                 '"related_pages":[]}],"conflicts":[]}}. '
                 "List every pending source exactly once, choose create or update, and explain "
-                "the routing in one short reason. Do not write Markdown or hidden reasoning."
+                "the routing in one short reason. Existing sources of an updated page may also "
+                "appear in the plan. Prefer reusing a related topic over creating a duplicate "
+                "source summary. Surface conflicting source statements in conflicts. "
+                "Do not write Markdown or hidden reasoning."
                 + (
-                    " Group related conversation sessions by concrete topic; do not merge them "
+                    " Group related sources by concrete topic; do not merge them "
                     "only because they share a broad repository or product name."
                     if reorganize_existing
                     else ""
@@ -989,9 +1020,9 @@ def _validate_compilation_plan(
     available_source_ids: set[str],
 ) -> None:
     planned_ids = [source_id for page in plan.pages for source_id in page.source_ids]
-    if set(planned_ids) != pending_ids:
+    if not pending_ids <= set(planned_ids) or not set(planned_ids) <= available_source_ids:
         missing = sorted(pending_ids - set(planned_ids))
-        extra = sorted(set(planned_ids) - pending_ids)
+        extra = sorted(set(planned_ids) - available_source_ids)
         message = "CompilationPlan source coverage mismatch"
         if missing:
             message += "; missing: " + ", ".join(missing)
@@ -1000,8 +1031,6 @@ def _validate_compilation_plan(
         raise ValueError(message)
     if len(planned_ids) != len(set(planned_ids)):
         raise ValueError("CompilationPlan must assign each pending source exactly once")
-    if not set(planned_ids) <= available_source_ids:
-        raise ValueError("CompilationPlan references an unavailable source")
 
 
 def _plan_for_path(
@@ -1014,9 +1043,9 @@ def _plan_for_path(
         if page.path == path:
             return page
     source_set = set(source_ids)
-    for page in plan.pages:
-        if set(page.source_ids) == source_set:
-            return page
+    compatible = [page for page in plan.pages if set(page.source_ids) <= source_set]
+    if len(compatible) == 1:
+        return compatible[0]
     raise ValueError(f"CompilationPlan has no entry for generated page: {path}")
 
 
@@ -1100,8 +1129,11 @@ def _validate_llm_changes(
                 page for page in routed_pages if change_source_ids & set(page.source_ids)
             ]
             if matching_routed_pages:
-                if len(matching_routed_pages) != 1 or change_source_ids != set(
-                    matching_routed_pages[0].source_ids
+                if (
+                    len(matching_routed_pages) != 1
+                    or not set(matching_routed_pages[0].source_ids) <= change_source_ids
+                    or not (change_source_ids - set(matching_routed_pages[0].source_ids))
+                    <= pending_ids
                 ):
                     raise ValueError("provider cannot change an existing Wiki page ownership group")
                 expected_existing_sources = matching_routed_pages[0].source_ids
@@ -1120,7 +1152,7 @@ def _validate_llm_changes(
             expected_existing_sources=expected_existing_sources,
         )
     for routed_page in routed_pages:
-        if not any(set(change.source_ids) == set(routed_page.source_ids) for change in changes):
+        if not any(set(routed_page.source_ids) <= set(change.source_ids) for change in changes):
             raise ValueError(
                 "provider must update each routed Wiki page with exactly its existing "
                 f"sources: {routed_page.path}"
@@ -1213,6 +1245,11 @@ def _render_llm_page(
         f"tags: {json.dumps(tags, ensure_ascii=False)}",
         f"sources: {json.dumps(source_ids, ensure_ascii=False)}",
         f"source_versions: {json.dumps(source_versions, ensure_ascii=False)}",
+        *(
+            ["generated: topic_wiki"]
+            if any(citation.section for citation in change.citations)
+            else []
+        ),
         "---",
         "",
         f"# {change.title}",
@@ -1233,10 +1270,17 @@ def _render_llm_page(
             "",
         ]
     )
-    for index, citation in enumerate(change.citations):
-        footnote = f"source-{index + 1}-{citation.source_id[:8]}"
-        quote = _citation_excerpt(citation.locator, citation.source_id, source_texts)
-        lines.append(f"- {quote} [^{footnote}]")
+    sections = dict.fromkeys(citation.section for citation in change.citations)
+    for section in sections:
+        if section or len(sections) > 1:
+            lines.extend([f"### {section or 'Other evidence'}", ""])
+        for index, citation in enumerate(change.citations):
+            if citation.section != section:
+                continue
+            footnote = f"source-{index + 1}-{citation.source_id[:8]}"
+            quote = _citation_excerpt(citation.locator, citation.source_id, source_texts)
+            lines.append(f"- {quote} [^{footnote}]")
+        lines.append("")
     lines.extend(
         [
             "",
@@ -1876,7 +1920,7 @@ def _target_page_path(
     pending_ids: set[str] | None = None,
 ) -> str:
     for routed_page in routed_pages:
-        if set(change.source_ids) == set(routed_page.source_ids):
+        if set(routed_page.source_ids) <= set(change.source_ids):
             return routed_page.path
     existing_source_ids = set(change.source_ids) - (pending_ids or set())
     for page in candidate_pages:

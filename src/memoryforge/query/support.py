@@ -372,6 +372,16 @@ def _support_score(
         )
     )
     failed_hard_gates = []
+    if selected and all(
+        re.fullmatch(r"(?:version\s*)?v?\d+\.\d+\.\d+", citation["quote"].strip(), re.I)
+        or (
+            "\n" not in citation["quote"].strip()
+            and citation["quote"].rstrip().endswith((":", "："))
+        )
+        for _, citation in selected
+    ):
+        failed_hard_gates.append("incomplete_evidence_fragment")
+        enforced = True
     if code_enforced and explicit_identifiers and exact_identifier_coverage < 1:
         failed_hard_gates.append("exact_identifier_not_covered")
     if enforced and score < _SUPPORT_THRESHOLD:

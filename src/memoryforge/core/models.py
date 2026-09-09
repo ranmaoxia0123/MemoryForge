@@ -271,12 +271,15 @@ class PageCitation(BaseModel):
 
     source_id: SourceId
     locator: str = Field(pattern=r"^chars:\d+-\d+$")
+    section: str = ""
 
     @model_validator(mode="after")
     def validate_locator(self) -> PageCitation:
         match = _CHAR_LOCATOR.fullmatch(self.locator)
         if match is None or int(match.group("end")) <= int(match.group("start")):
             raise ValueError("locator must contain a non-empty character range")
+        if self.section:
+            validate_llm_title(self.section)
         return self
 
 

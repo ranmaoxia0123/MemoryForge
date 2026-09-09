@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import posixpath
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal, cast
+from urllib.parse import unquote, urlsplit
 
 from memoryforge.adapters.importer import (
     _canonical_relative_source_path,
@@ -26,6 +30,7 @@ from memoryforge.core.models import (
     Sensitivity,
     SourceCategory,
 )
+from memoryforge.storage.database import connect, connect_readonly
 from memoryforge.storage.workspace import (
     Workspace,
     reconcile_folder_sources,
@@ -105,6 +110,17 @@ def sync_folder(
             folder_id=folder_id,
             current_paths={item.relative_path for item in scanned},
         )
+        _record_folder_dependencies(opened, folder_id, scanned)
+        # Local refresh configuration stays in the untracked workspace database.
+        with connect(opened.index_path) as connection:
+            connection.execute(
+                """INSERT INTO folder_refresh_sources
+                   (folder_id, root_path, category, tags_json, sensitivity) VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(folder_id) DO UPDATE SET root_path=excluded.root_path,
+                   category=excluded.category, tags_json=excluded.tags_json,
+                   sensitivity=excluded.sensitivity""",
+                (folder_id, str(source_root), category, json.dumps(tags), sensitivity.value),
+            )
     return FolderSyncResult(
         folder_id=folder_id,
         created=counts["created"],
@@ -112,6 +128,66 @@ def sync_folder(
         unchanged=counts["unchanged"],
         deleted=deleted,
         documents=tuple(documents),
+    )
+
+
+def _record_folder_dependencies(
+    workspace: Workspace, folder_id: str, scanned: tuple[_ScannedDocument, ...]
+) -> None:
+    """Pin inline Markdown links once per immutable source version.
+
+    Unchanged dependents keep their old target version until the dependent is edited.
+    """
+    with connect(workspace.index_path) as connection:
+        rows = connection.execute(
+            """SELECT members.relative_path, versions.id
+               FROM folder_source_versions AS members
+               JOIN source_versions AS versions ON versions.id=members.source_version_id
+               WHERE members.folder_id=? AND versions.is_current=1""",
+            (folder_id,),
+        ).fetchall()
+        current = {str(row[0]): int(row[1]) for row in rows}
+        for item in scanned:
+            source_version = current[item.relative_path]
+            # Existing source versions must not silently acknowledge a changed target.
+            has_dependencies = connection.execute(
+                "SELECT 1 FROM folder_source_dependencies WHERE source_version_id=? LIMIT 1",
+                (source_version,),
+            ).fetchone()
+            if has_dependencies:
+                continue
+            content = re.sub(r"(?ms)^```.*?^```[^\n]*$", "", item.document.content)
+            for match in re.finditer(r"(?<!!)\[[^\]\n]+\]\(([^\s)]+)(?:[ \t]+[^)]+)?\)", content):
+                link = urlsplit(match[1].strip("<>"))
+                if link.scheme or link.netloc or not link.path:
+                    continue
+                target_path = posixpath.normpath(
+                    posixpath.join(posixpath.dirname(item.relative_path), unquote(link.path))
+                )
+                target_version = current.get(target_path)
+                if target_version is not None and target_version != source_version:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO folder_source_dependencies VALUES (?, ?)",
+                        (source_version, target_version),
+                    )
+
+
+def refresh_folders(workspace: Path) -> tuple[FolderSyncResult, ...]:
+    """Refresh registered folders using their original import policy."""
+    opened = Workspace.open(workspace)
+    with connect_readonly(opened.index_path) as connection:
+        rows = connection.execute(
+            "SELECT * FROM folder_refresh_sources ORDER BY folder_id"
+        ).fetchall()
+    return tuple(
+        sync_folder(
+            opened.root,
+            Path(row["root_path"]),
+            category=row["category"],
+            tags=tuple(json.loads(row["tags_json"])),
+            sensitivity=Sensitivity(row["sensitivity"]),
+        )
+        for row in rows
     )
 
 
