@@ -242,10 +242,16 @@ def test_agent_session_keeps_three_latest_turns_and_isolates_sessions(
 ) -> None:
     workspace = _applied_public_workspace(tmp_path, monkeypatch)
 
-    for index in range(4):
+    questions = [
+        "When do cache entries expire?",
+        "When do the cache entries expire?",
+        "When does a cache entry expire?",
+        "How long do cache entries last?",
+    ]
+    for question in questions:
         result = run_agent(
             workspace,
-            f"When do cache entries expire? turn {index}",
+            question,
             provider=StubAgentProvider(
                 [
                     AgentStep(action="search_wiki", query="When do cache entries expire?"),
@@ -263,11 +269,7 @@ def test_agent_session_keeps_three_latest_turns_and_isolates_sessions(
 
     turns = SessionStore(workspace, "chat-a").load(allow_local=True)
     assert len(turns) == 3
-    assert [turn["question"] for turn in turns] == [
-        "When do cache entries expire? turn 1",
-        "When do cache entries expire? turn 2",
-        "When do cache entries expire? turn 3",
-    ]
+    assert [turn["question"] for turn in turns] == questions[1:]
 
     isolated = CapturingAgentProvider([AgentStep(action="final", answer="不知道")])
     result = run_agent(
@@ -277,7 +279,7 @@ def test_agent_session_keeps_three_latest_turns_and_isolates_sessions(
         session_id="chat-b",
     )
     assert result["status"] == "unknown"
-    assert "turn 3" not in json.dumps(isolated.messages[0], ensure_ascii=False)
+    assert questions[-1] not in json.dumps(isolated.messages[0], ensure_ascii=False)
 
 
 def test_agent_without_session_keeps_single_turn_behavior(tmp_path: Path, monkeypatch) -> None:

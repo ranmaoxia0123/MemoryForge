@@ -392,8 +392,7 @@ def _support_score(
     )
     code_enforced = any(page_path in code_page_paths for page_path, _ in selected)
     enforced = (
-        (enforce_document_support and not any(_CJK.fullmatch(term) for term in question_terms))
-        or bool(required_source_groups)
+        bool(required_source_groups)
         or "分别" in question
         or code_enforced
         or any(
@@ -420,7 +419,10 @@ def _support_score(
     if identifier_enforced and exact_identifier_coverage < 1:
         failed_hard_gates.append("exact_identifier_not_covered")
         enforced = True
-    if enforced and score < _SUPPORT_THRESHOLD:
+    document_score_enforced = enforce_document_support and not any(
+        _CJK.fullmatch(term) for term in question_terms
+    )
+    if (enforced or document_score_enforced) and score < _SUPPORT_THRESHOLD:
         failed_hard_gates.append("score_below_threshold")
     if enforced and quantity_question and not quantity_covered:
         failed_hard_gates.append("quantity_not_covered")
@@ -437,6 +439,7 @@ def _support_score(
             failed_hard_gates.append("multi_source_incomplete")
         if not current_source_versions:
             failed_hard_gates.append("citation_not_current")
+    enforced = enforced or document_score_enforced
     return {
         "score": score,
         "threshold": _SUPPORT_THRESHOLD,
