@@ -6,9 +6,9 @@
 
 # MemoryForge
 
-**Compile code, docs, and AI conversations into an auditable, traceable local wiki.**
+**Compile code, docs, and AI conversations into an auditable local wiki with retrieval-augmented Q&A.**
 
-A local-first knowledge compiler — AI can only propose changes; humans review before anything is published, and every claim traces back to its source.
+A local-first system for Wiki maintenance and retrieval-augmented Q&A. AI proposes reviewable changes; source citations are replayable, while synthesized conclusions still need verification.
 
 <a href="https://github.com/still0123/MemoryForge/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/release-v0.4.0-1664FF" alt="release v0.4.0"/></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"/></a>
@@ -16,7 +16,7 @@ A local-first knowledge compiler — AI can only propose changes; humans review 
 <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-lightgrey" alt="macOS · Windows"/>
 <img src="https://img.shields.io/badge/release%20gate-656%20tests%20passed-brightgreen" alt="release gate: 656 tests passed"/>
 
-[Quick Start](#quick-start) · [vs. Vanilla RAG](#vs-vanilla-rag) · [Design Decisions](#design-decisions) · [Use in AI Apps](#use-in-ai-apps)
+[Quick Start](#quick-start) · [Wiki and RAG](#how-wiki-and-rag-work-together) · [Design Decisions](#design-decisions) · [Use in AI Apps](#use-in-ai-apps)
 
 [English] | **简体中文** ([README.md](README.md))
 
@@ -29,13 +29,13 @@ A local-first knowledge compiler — AI can only propose changes; humans review 
 Giving AI coding assistants access to project knowledge usually means one of two trade-offs:
 
 - **Dump documents into the context window** — expensive, noisy, and stale within days;
-- **Build a RAG pipeline** — chunk-recalled answers cannot be traced, and nobody reviews index updates.
+- **Build a basic RAG pipeline** — retrieval and Q&A are covered, while knowledge organization, review, and incremental maintenance need their own design.
 
 MemoryForge takes a **compilation** approach: it turns Git repositories, Markdown/TXT/HTML,
 Feishu docs, public web pages, GitHub Issues/PRs, and AI conversations into a single
 human-readable, Git-versioned Markdown Wiki. AI can only generate proposals (ChangeSets);
-a human reviews before anything is published — and every claim can be replayed against the
-exact version of its source. The output is still plain Markdown, Git history, and a local
+a human reviews before anything is published. Source citations pin an exact version and
+location; synthesized conclusions still need verification. The output is plain Markdown, Git history, and a local
 SQLite index.
 
 | Capability | What it means |
@@ -43,21 +43,44 @@ SQLite index.
 | **Auditable updates** | Generate → review → approve → apply are separate steps; AI can never modify the published wiki directly |
 | **Traceable claims** | Citations pin the SourceVersion, source locator, Git commit, and SHA-256 |
 | **Context on demand** | `INDEX.md` + SQLite FTS5 locate pages first; source evidence is expanded only when verification is needed |
-| **No guessing without evidence** | Three-level `evidence_status`: `grounded / partial / no_local_evidence` |
+| **Evidence status and abstention** | `grounded / partial / no_local_evidence`; evidence checks do not guarantee semantic correctness or complete answers |
 | **Selective session recall** | Past conversations are clustered by topic and loaded on demand |
 | **One entry point for many clients** | Codex, Claude Code, and Gemini share a single local MCP server |
 | **Local-first** | Git, Feishu, code, and conversation sources are `local_only` by default; your data stays on your machine |
 
-## vs. Vanilla RAG
+## How Wiki and RAG Work Together
 
-![MemoryForge vs. vanilla RAG pipeline comparison](assets/diagrams/vs-rag-pipeline.en.svg)
+MemoryForge uses retrieval augmentation for Q&A. BM25 is a retrieval algorithm;
+passing retrieved evidence to a model to generate an answer is RAG. Model-free queries
+return evidence excerpts. Wiki organization and RAG answer different needs within this system.
 
-| Vanilla RAG | MemoryForge |
-| --- | --- |
-| Recalls raw chunks directly | Compiles sources into a readable, auditable, versioned wiki first |
-| Updates silently replace the index | Generates a ChangeSet, then `review → approve → apply` |
-| Answers whenever a topic seems related | Preserves boundaries when evidence is insufficient; never invents project facts |
-| Hard to replay a past answer | Citations pin the source version, locator, commit, and SHA-256 |
+The Wiki stores readable topics, design reasons, exceptions, and history for reuse.
+Retrieval supplies relevant evidence for each question. RAG systems can also provide
+citations, versioning, and review: none of these capabilities is exclusive to Wiki systems.
+RAG plus scripts or a Skill can implement a similar workflow. MemoryForge integrates
+those maintenance steps around one reviewable knowledge artifact, at the cost of
+compilation, review, storage, and possible omissions or misinterpretations during synthesis.
+Direct source retrieval is often simpler for one-off questions.
+
+Default `ingest` creates deterministic source excerpts without model calls. `ingest --llm`
+compiles topics using a configured model; synthesis remains unverified and source citations
+are organized by section. Existing sources can be reorganized explicitly with
+`ingest --llm --reorganize --source <id>`; local-only sources require `--allow-local-llm`.
+These operations create proposals requiring `review / approve / apply`.
+Model-backed topic queries can supplement topic evidence with passages from the topic's
+current, published sources. Stale topic synthesis is excluded from answers.
+
+Evaluate concrete pipelines using the same sources, model, and context budget:
+raw-source RAG, Wiki-based RAG, and their combination. Measure answer correctness and
+completeness, abstention quality, evidence coverage, latency, and compilation/update cost.
+Reading and maintenance benefits need separate task-time and review-effort measurements.
+Missing, incomplete, and unnecessarily refused answers remain known limitations;
+passing tests, traceable citations, or answer rates do not establish superiority over RAG.
+
+`demo/run_wiki_ablation.py` compares raw BM25, Wiki, and combined evidence without model
+calls, under a shared serialized-character budget. It measures annotated passage coverage,
+not answer accuracy; characters are not model tokens, and the combined arm is an
+experimental context assembly method. Only current, published public sources participate.
 
 ## Design Decisions
 
@@ -75,9 +98,10 @@ citation pins the SourceVersion, the source locator, the commit, and the SHA-256
 so any historical claim can be replayed locally against the exact passage it was based on.
 
 **Why SQLite FTS5 instead of a vector database?**
-Wiki pages are compiled artifacts, not raw chunks: they are few in number and carry strong
-title/structure semantics. Full-text search locates pages reliably, is fully explainable,
-and requires zero external services. Vector databases are on the non-goal list (see below).
+SQLite FTS5 provides local full-text retrieval and BM25 ranking without external services.
+Topic structure adds organization but does not guarantee coverage of synonyms or semantic
+relationships. The need for semantic retrieval depends on evaluation against the target
+documents and questions.
 
 **Why a three-level `evidence_status`?**
 It forces the model to separate "conclusions backed by local evidence" from "generic

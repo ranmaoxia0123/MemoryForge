@@ -6,9 +6,9 @@
 
 # MemoryForge
 
-**把代码、文档和 AI 对话，编译成可审核、可追溯的本地技术 Wiki。**
+**把代码、文档和 AI 对话，编译成可审核、可追溯的本地技术 Wiki，并提供检索增强问答。**
 
-Local-first knowledge compiler — AI 只能提案，人审核后才发布；每条结论都能回放到原文。
+本地优先的 Wiki 知识维护与检索增强问答系统。AI 生成待审核提案，原文引用可回放，模型综合结论仍需核验。
 
 <a href="https://github.com/still0123/MemoryForge/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/release-v0.4.0-1664FF" alt="release v0.4.0"/></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"/></a>
@@ -18,7 +18,7 @@ Local-first knowledge compiler — AI 只能提案，人审核后才发布；每
 
 [快速开始](#快速开始) · [源码学习手册](docs/SOURCE_CODE_DEEP_DIVE_CN.md) ·
 [秋招项目评估](docs/SOURCE_CODE_DEEP_DIVE_CN.md#25-秋招项目竞争力与优化路线) ·
-[与 RAG 的区别](#与普通-rag-的区别) · [设计决策](#核心设计决策) ·
+[Wiki 与 RAG 如何配合](#wiki-与-rag-如何配合) · [设计决策](#核心设计决策) ·
 [在 AI 应用中使用](#在-ai-应用中使用)
 
 **简体中文** | [English](README_EN.md)
@@ -44,7 +44,7 @@ AI 只能生成提案（ChangeSet），人审核后才真正发布；原文证�
 | **更新可审核** | 生成 → review → approve → apply 四步分离，AI 不能直接修改正式 Wiki |
 | **原文证据可追溯** | Citation 锁定 SourceVersion、原文 locator、Git Commit 与 SHA-256 |
 | **上下文按需加载** | `INDEX.md` + SQLite FTS5 先定位页面，需要核验才展开原文 Evidence |
-| **证据不足不猜测** | `grounded / partial / no_local_evidence` 三级证据状态 |
+| **证据状态与拒答** | `grounded / partial / no_local_evidence` 三级状态；证据校验不能保证答案完整或语义正确 |
 | **旧会话可选择性加载** | 按主题聚合历史对话，按需把指定会话上下文带入当前任务 |
 | **多客户端统一接入** | Codex、Claude Code、Gemini 共用同一个本地 MCP Server |
 | **本地优先** | Git、飞书、代码和会话来源默认 `local_only`，资料留在本机 |
@@ -54,6 +54,13 @@ AI 只能生成提案（ChangeSet），人审核后才真正发布；原文证�
 MemoryForge 的问答也使用检索增强。Wiki 的目标是把多份资料中的规则、设计原因、
 变更历史和例外整理成可复用的主题，让人可以直接阅读，后续问答也能利用已有整理。
 RAG 同样可以实现引用、审阅和版本管理；这些能力不是 Wiki 独占的优势。
+
+**BM25 是检索算法；检索证据再交给模型生成答案属于 RAG。** 无模型查询返回证据摘录，
+模型问答在检索证据上生成回答。项目的价值主张是把知识整理、人工阅读、增量维护和问答
+接到同一份可审核的知识产物上，而不是提出一种取代 RAG 的检索算法。
+
+如果只需要临时查资料，直接检索原文通常实现更简单。RAG 加脚本或 Skill 也可以完成
+类似流程；MemoryForge 将这些维护步骤做成统一工作流，代价是额外的编译、审核和存储成本。
 
 默认 `ingest` 生成确定性的来源摘录，适合零模型成本的导入和证据查询。
 `ingest --llm` 使用配置的模型编译主题；模型说明仍标为未验证，原文引用按章节组织。
@@ -78,6 +85,11 @@ memoryforge ingest --llm --reorganize --source <source-id-a> --source <source-id
 代价是编译、审核和更新成本，以及模型整理可能遗漏或误解资料。是否降低重复查询成本、
 提高跨资料回答质量，需要在相同模型与上下文预算下对比原文 RAG、Wiki RAG 和混合检索。
 本地受控测试只验证编译与复用流程，不代表真实模型的综合能力或准确率提升。
+
+可以对标具体方案：在相同来源、模型和上下文预算下，对照“原文检索问答”“Wiki 检索问答”
+以及“两者结合”，分别测答案正确性与完整性、拒答质量、证据覆盖、延迟和编译更新成本。
+阅读与维护价值需另测完成任务的时间和审核负担。当前仍有漏答、不完整回答和有答案却拒答，
+不能将测试通过、引用可追溯或作答比例写成“优于 RAG”的证据。
 
 `demo/run_wiki_ablation.py` 提供零模型调用的原文 BM25、Wiki 和混合证据对照，统一限制
 序列化上下文字符数，并统计标注片段覆盖率。它是检索表示的消融工具，字符数不等于

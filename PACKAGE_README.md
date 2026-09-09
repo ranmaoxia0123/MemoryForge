@@ -1,9 +1,16 @@
 # MemoryForge
 
-MemoryForge is a local-first, auditable knowledge compiler for documents and
-source repositories. It preserves source versions, reviewable changes, Wiki
-pages, and replayable citations while supporting deterministic offline
-evaluation.
+MemoryForge is a local-first system for auditable Wiki maintenance and
+retrieval-augmented Q&A over documents and source repositories. It preserves
+source versions, reviewable changes, readable Wiki pages, and replayable citations.
+Local full-text retrieval uses SQLite FTS5/BM25; model-free queries return evidence
+excerpts, while model-backed Q&A generates answers from retrieved evidence.
+
+The Wiki supports reading and maintaining reusable knowledge alongside RAG.
+RAG plus scripts or a Skill can implement similar maintenance steps; MemoryForge
+integrates them into one workflow with additional compilation and review costs.
+Deterministic offline checks do not establish better answer accuracy than other
+RAG pipelines, and missing or incomplete answers remain possible.
 
 ```bash
 python -m pip install memoryforge-wiki
